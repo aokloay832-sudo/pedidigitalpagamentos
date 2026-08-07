@@ -72,7 +72,7 @@
             <input type="text" id="login-user" placeholder="Digite seu usuário">
         </div>
         <div class="login-group">
-            <label>SENHA DOS SISTEMA</label>
+            <label>SENHA DO SISTEMA</label>
             <input type="password" id="login-pass" placeholder="••••••••">
         </div>
         <button id="btn-do-login" class="btn-login">Acessar Painel</button>
@@ -119,21 +119,21 @@
                     <label>TARIFA BASE FREE FLOW</label>
                     <div class="input-wrapper">
                         <span>R$</span>
-                        <input type="number" id="tax-base" step="0.01" value="0.00">
+                        <input type="number" id="tax-base" step="0.01" value="14.50">
                     </div>
                 </div>
                 <div class="form-group">
                     <label>MULTA ADMINISTRATIVA</label>
                     <div class="input-wrapper">
                         <span>R$</span>
-                        <input type="number" id="tax-fine" step="0.01" value="0.00">
+                        <input type="number" id="tax-fine" step="0.01" value="15.00">
                     </div>
                 </div>
                 <div class="form-group">
                     <label>JUROS DE MORA</label>
                     <div class="input-wrapper">
                         <span>R$</span>
-                        <input type="number" id="tax-interest" step="0.01" value="0.00">
+                        <input type="number" id="tax-interest" step="0.01" value="4.40">
                     </div>
                 </div>
                 <button id="btn-save-rates" class="btn-save">Salvar Alterações</button>
@@ -174,7 +174,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-        // MUDANÇA AQUI: Busca as credenciais na nova rota Node.js
         const responseConfig = await fetch('/api/config');
         const appConfig = await responseConfig.json();
 
@@ -213,51 +212,70 @@
             onValue(ref(db), (snapshot) => {
                 const data = snapshot.val() || {};
                 
-                const metricas = data.metricas || { views: 0, clicks: 0 };
-                document.getElementById('m-views').textContent = metricas.views || 0;
-                document.getElementById('m-clicks').textContent = metricas.clicks || 0;
+                // Métrica de Acessos
+                const stats = data.stats || {};
+                const metricas = data.metricas || {};
+                const viewsCount = stats.acessos || stats.acessos_tela || metricas.acessos || metricas.views || 0;
+                const clicksCount = stats.cliques_pix || stats.cliques || metricas.cliques_pix || metricas.clicks || 0;
+                
+                document.getElementById('m-views').textContent = viewsCount;
+                document.getElementById('m-clicks').textContent = clicksCount;
 
-                if (data.configuracoes && data.configuracoes.taxas) {
-                    const t = data.configuracoes.taxas;
-                    document.getElementById('tax-base').value = parseFloat(t.base || 0).toFixed(2);
-                    document.getElementById('tax-fine').value = parseFloat(t.fine || 0).toFixed(2);
-                    document.getElementById('tax-interest').value = parseFloat(t.interest || 0).toFixed(2);
+                // Taxas
+                const t = (data.configuracoes && data.configuracoes.taxas) || data.taxas || {};
+                if (t.base !== undefined || t.tarifa_base !== undefined) {
+                    document.getElementById('tax-base').value = parseFloat(t.base || t.tarifa_base || 14.50).toFixed(2);
+                    document.getElementById('tax-fine').value = parseFloat(t.fine || t.multa_adm || 15.00).toFixed(2);
+                    document.getElementById('tax-interest').value = parseFloat(t.interest || t.juros_mora || 4.40).toFixed(2);
                 }
 
+                // Veículos
                 const veiculosObj = data.veiculos || {};
-                listaVeiculos = Object.keys(veiculosObj).map(key => ({
-                    id: key,
-                    ...veiculosObj[key]
-                })).sort((a,b) => new Date(b.data_consulta || 0) - new Date(a.data_consulta || 0));
+                listaVeiculos = Object.keys(veiculosObj).map(key => {
+                    const item = veiculosObj[key] || {};
+                    return {
+                        id: key.toUpperCase(),
+                        placa: (item.placa || key).toUpperCase(),
+                        status: String(item.status || 'pendente').toLowerCase(),
+                        valor: parseFloat(item.valor || 33.90),
+                        tipo_busca: item.tipo_busca || (key.length === 11 ? 'cpf' : 'placa'),
+                        data_consulta: item.data_consulta || item.criado_em || item.data || new Date().toISOString()
+                    };
+                }).sort((a, b) => new Date(b.data_consulta || 0) - new Date(a.data_consulta || 0));
 
                 atualizarContadoresEFaturamento();
                 renderTable();
             });
         }
 
-        document.getElementById('btn-save-rates').addEventListener('click', () => {
+        document.getElementById('btn-save-rates').addEventListener('click', async () => {
             const base = parseFloat(document.getElementById('tax-base').value) || 0;
             const fine = parseFloat(document.getElementById('tax-fine').value) || 0;
             const interest = parseFloat(document.getElementById('tax-interest').value) || 0;
 
-            set(ref(db, 'configuracoes/taxas'), {
-                base: base,
-                fine: fine,
-                interest: interest
-            }).then(() => {
-                alert("Taxas atualizadas com sucesso no banco de dados!");
-            }).catch(err => alert("Erro ao salvar taxas: " + err));
+            const payload = {
+                base, fine, interest,
+                tarifa_base: base, multa_adm: fine, juros_mora: interest
+            };
+
+            try {
+                await set(ref(db, 'configuracoes/taxas'), payload);
+                await set(ref(db, 'taxas'), payload);
+                alert("Taxas atualizadas com sucesso!");
+            } catch (err) {
+                alert("Erro ao salvar taxas: " + err.message);
+            }
         });
 
         function atualizarContadoresEFaturamento() {
             let pends = 0; let pags = 0; let faturamento = 0;
             
             listaVeiculos.forEach(v => {
-                if(v.status === "pago") {
+                if (v.status === "pago" || v.status === "approved" || v.status === "completed") {
                     pags++;
                     faturamento += parseFloat(v.valor || 0);
                 } else {
-                    if (v.status === "pendente") pends++;
+                    pends++;
                 }
             });
             
@@ -293,8 +311,9 @@
             tbody.innerHTML = "";
 
             const filtrados = listaVeiculos.filter(v => {
-                const bateAba = v.status === currentTab;
-                const bateBusca = v.id.includes(searchVal);
+                const statusNormalizado = (v.status === "pago" || v.status === "approved" || v.status === "completed") ? "pago" : "pendente";
+                const bateAba = statusNormalizado === currentTab;
+                const bateBusca = v.id.includes(searchVal) || v.placa.includes(searchVal);
                 return bateAba && bateBusca;
             });
 
@@ -306,16 +325,23 @@
 
             filtrados.forEach(v => {
                 const tr = document.createElement('tr');
-                const dataFormatada = v.data_consulta ? new Date(v.data_consulta).toLocaleString('pt-BR') : '---';
+                
+                let dataFormatada = '---';
+                if (v.data_consulta) {
+                    const d = new Date(v.data_consulta);
+                    dataFormatada = isNaN(d.getTime()) ? v.data_consulta : d.toLocaleString('pt-BR');
+                }
+
                 const valorFormatado = parseFloat(v.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
                 const tipoBusca = v.tipo_busca ? v.tipo_busca.toUpperCase() : 'PLACA';
+                const statusBadge = (v.status === "pago" || v.status === "approved" || v.status === "completed") ? "pago" : "pendente";
 
                 tr.innerHTML = `
-                    <td style="font-weight: 700; color: #fff; letter-spacing: 0.5px;">${v.id}</td>
+                    <td style="font-weight: 700; color: #fff; letter-spacing: 0.5px;">${v.placa || v.id}</td>
                     <td><span style="font-size: 11px; background:#222; padding:3px 6px; border-radius:4px;">${tipoBusca}</span></td>
                     <td style="font-weight: 600;">${valorFormatado}</td>
                     <td style="color:#777;">${dataFormatada}</td>
-                    <td><span class="badge ${v.status}">${v.status}</span></td>
+                    <td><span class="badge ${statusBadge}">${statusBadge}</span></td>
                 `;
                 tbody.appendChild(tr);
             });

