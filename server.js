@@ -133,19 +133,25 @@ app.post('/api/gerar-pix', async (req, res) => {
         const copiaCola = pixInfo.qrcode || pixInfo.qrCode || pixInfo.copyPaste || tx.copy_paste || '';
 
         if (copiaCola) {
-            return res.json({
-                status: "true",
-                copy_paste: copiaCola,
-                qrcode: copiaCola,
-                qr_code_url: pixInfo.qrCodeUrl || ''
-            });
-        } else {
-            return res.json({
-                status: "false",
-                error: resData.message || tx.message || 'Falha ao obter QR Code da PayShark',
-                details: resData
-            });
+    return res.json({
+        status: true,              // Booleano true
+        success: true,             // Compatibilidade adicional
+        copy_paste: copiaCola,     // Nome padrão
+        copia_cola: copiaCola,     // Alias com underline
+        copiaecola: copiaCola,     // Alias sem separador
+        qrcode: copiaCola,         // Alias qrcode
+        qr_code: copiaCola,
+        qr_code_url: pixInfo.qrCodeUrl || '',
+        paymentData: {
+            copiaecola: copiaCola,
+            qrcode: copiaCola
+        },
+        data: {
+            copy_paste: copiaCola,
+            qrcode: copiaCola
         }
+    });
+}
 
     } catch (error) {
         console.error('Erro no servidor ao gerar Pix:', error);
