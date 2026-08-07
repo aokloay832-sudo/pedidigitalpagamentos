@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import QRCode from 'qrcode';
 
 dotenv.config();
 
@@ -43,33 +44,30 @@ app.get('/api/config', (req, res) => {
 });
 
 // 2. ROTA PARA GERAR PIX (PayShark V1 API)
-app.post('/api/gerar-pix', async (req, res) => {
+app.post(['/api/gerar-pix', '/gerar-pix', '/api/gerar_pix.php', '/gerar_pix.php'], async (req, res) => {
     try {
         const dadosEntrada = req.body || {};
 
-        // Converter valor de reais para centavos (ex: 10.50 -> 1050)
+        // Converter valor de reais para centavos
         let valorReais = 10.00;
         if (dadosEntrada.valor) {
             valorReais = parseFloat(String(dadosEntrada.valor).replace(',', '.'));
         }
         const amountCents = Math.round(valorReais * 100);
 
-        // Definir credenciais
+        // Credenciais PayShark
         const apiKey = (process.env.PAYSHARK_API_KEY || process.env.PIX_GATEWAY_PUBLIC_KEY || '').trim();
         const apiSecret = (process.env.PAYSHARK_API_SECRET || process.env.PIX_GATEWAY_SECRET_KEY || '').trim();
 
         if (!apiKey || !apiSecret) {
-            return res.status(500).json({ status: "false", error: "Credenciais da PayShark não encontradas no .env" });
+            return res.status(500).json({ status: false, error: "Credenciais da PayShark não configuradas." });
         }
 
-        // Endpoint correto para a PayShark
         const urlBase = (process.env.PAYSHARK_API_URL || 'https://api.paysharkgateway.com.br').replace(/\/$/, '');
         const endpoint = `${urlBase}/v1/transactions`;
-
-        // Gerar o cabeçalho Basic Auth
         const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
 
-        // Sanitização dos dados do cliente
+        // Dados do Cliente
         const doc = String(process.env.PIX_GATEWAY_CLIENT_DOCUMENT || '01387220055').replace(/\D/g, '');
         const phone = String(process.env.PIX_GATEWAY_CLIENT_PHONE || '11999999999').replace(/\D/g, '');
         const email = String(process.env.PIX_GATEWAY_CLIENT_EMAIL || 'teste@teste.com').trim();
@@ -77,7 +75,6 @@ app.post('/api/gerar-pix', async (req, res) => {
         const name = process.env.PIX_GATEWAY_CLIENT_NAME || (placa ? `Pedágio ${placa}` : 'Cliente Pedágio');
         const postbackUrl = process.env.PIX_GATEWAY_CALLBACK_URL || '';
 
-        // Payload estruturado conforme documentação PayShark
         const payload = {
             amount: amountCents,
             currency: 'BRL',
@@ -121,41 +118,58 @@ app.post('/api/gerar-pix', async (req, res) => {
         try {
             resData = textResponse ? JSON.parse(textResponse) : {};
         } catch (e) {
-            console.error('Resposta PayShark não é JSON:', textResponse);
-            return res.status(500).json({ status: "false", error: "Erro de comunicação com o Gateway de Pagamento" });
+            return res.status(500).json({ status: false, error: "Erro ao comunicar com a gateway." });
         }
 
         console.log(`[PAYSHARK RESP HTTP ${response.status}]:`, JSON.stringify(resData));
 
-        // Extrai a transação e o código Pix da resposta
         const tx = resData.data || resData;
         const pixInfo = tx.pix || {};
         const copiaCola = pixInfo.qrcode || pixInfo.qrCode || pixInfo.copyPaste || tx.copy_paste || '';
 
         if (copiaCola) {
-    return res.json({
-        status: true,              // Booleano true
-        success: true,             // Compatibilidade adicional
-        copy_paste: copiaCola,     // Nome padrão
-        copia_cola: copiaCola,     // Alias com underline
-        copiaecola: copiaCola,     // Alias sem separador
-        qrcode: copiaCola,         // Alias qrcode
-        qr_code: copiaCola,
-        qr_code_url: pixInfo.qrCodeUrl || '',
-        paymentData: {
-            copiaecola: copiaCola,
-            qrcode: copiaCola
-        },
-        data: {
-            copy_paste: copiaCola,
-            qrcode: copiaCola
+            // Gera a imagem do QR Code em Base64 para o frontend
+            let qrcodeBase64 = '';
+            try {
+                const dataUrl = await QRCode.toDataURL(copiaCola, { margin: 1, width: 280 });
+                qrcodeBase64 = dataUrl.replace(/^data:image\/[^;]+;base64,/, '');
+            } catch (qrErr) {
+                console.error("Erro ao gerar QR Code Base64:", qrErr);
+            }
+
+            // Retorno ultra-compatível com qualquer versão do frontend
+            return res.json({
+                status: true,
+                success: true,
+                copy_paste: copiaCola,
+                copia_cola: copiaCola,
+                copiaecola: copiaCola,
+                qrcode: copiaCola,
+                qr_code: copiaCola,
+                qrcode_base64: qrcodeBase64,
+                qr_code_base64: qrcodeBase64,
+                qr_code_url: pixInfo.qrCodeUrl || `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(copiaCola)}`,
+                paymentData: {
+                    copiaecola: copiaCola,
+                    qrcode: copiaCola,
+                    qrcode_base64: qrcodeBase64
+                },
+                data: {
+                    copy_paste: copiaCola,
+                    qrcode: copiaCola,
+                    qrcode_base64: qrcodeBase64
+                }
+            });
+        } else {
+            return res.json({
+                status: false,
+                error: resData.message || tx.message || 'Falha ao obter QR Code da PayShark'
+            });
         }
-    });
-}
 
     } catch (error) {
         console.error('Erro no servidor ao gerar Pix:', error);
-        return res.status(500).json({ status: "false", error: "Erro interno no servidor: " + error.message });
+        return res.status(500).json({ status: false, error: "Erro interno no servidor: " + error.message });
     }
 });
 
