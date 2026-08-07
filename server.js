@@ -23,7 +23,7 @@ app.get('/admin', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// 1. ROTA DE CONFIGURAÇÕES PÚBLICAS (substitui config.php)
+// 1. ROTA DE CONFIGURAÇÕES PÚBLICAS
 app.get('/api/config', (req, res) => {
     res.json({
         firebase: {
@@ -42,79 +42,118 @@ app.get('/api/config', (req, res) => {
     });
 });
 
-// 2. ROTA PARA GERAR PIX (substitui gerar_pix.php)
+// 2. ROTA PARA GERAR PIX (PayShark V1 API)
 app.post('/api/gerar-pix', async (req, res) => {
     try {
         const dadosEntrada = req.body || {};
-        const url_api = process.env.PAYSHARK_API_URL || 'https://api.paysharkgateway.com.br';
-        const api_key = process.env.PAYSHARK_API_KEY || '';
-        const api_secret = process.env.PAYSHARK_API_SECRET || '';
 
-        let valor = 10.00;
+        // Converter valor de reais para centavos (ex: 10.50 -> 1050)
+        let valorReais = 10.00;
         if (dadosEntrada.valor) {
-            valor = parseFloat(String(dadosEntrada.valor).replace(',', '.'));
+            valorReais = parseFloat(String(dadosEntrada.valor).replace(',', '.'));
+        }
+        const amountCents = Math.round(valorReais * 100);
+
+        // Definir credenciais
+        const apiKey = (process.env.PAYSHARK_API_KEY || process.env.PIX_GATEWAY_PUBLIC_KEY || '').trim();
+        const apiSecret = (process.env.PAYSHARK_API_SECRET || process.env.PIX_GATEWAY_SECRET_KEY || '').trim();
+
+        if (!apiKey || !apiSecret) {
+            return res.status(500).json({ status: "false", error: "Credenciais da PayShark não encontradas no .env" });
         }
 
-        const nomeCliente = process.env.PIX_GATEWAY_CLIENT_NAME || 'Cliente Pedágio Digital';
-        const cpfGenerico = process.env.PIX_GATEWAY_CLIENT_DOCUMENT || '00000000000';
-        const telefonePadrao = process.env.PIX_GATEWAY_CLIENT_PHONE || '11999999999';
-        const emailPadrao = process.env.PIX_GATEWAY_CLIENT_EMAIL || 'pagamento@pedagiodigital.com';
+        // Endpoint correto para a PayShark
+        const urlBase = (process.env.PAYSHARK_API_URL || 'https://api.paysharkgateway.com.br').replace(/\/$/, '');
+        const endpoint = `${urlBase}/v1/transactions`;
+
+        // Gerar o cabeçalho Basic Auth
+        const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString('base64')}`;
+
+        // Sanitização dos dados do cliente
+        const doc = String(process.env.PIX_GATEWAY_CLIENT_DOCUMENT || '01387220055').replace(/\D/g, '');
+        const phone = String(process.env.PIX_GATEWAY_CLIENT_PHONE || '11999999999').replace(/\D/g, '');
+        const email = String(process.env.PIX_GATEWAY_CLIENT_EMAIL || 'teste@teste.com').trim();
+        const placa = String(dadosEntrada.placa || '').trim().toUpperCase();
+        const name = process.env.PIX_GATEWAY_CLIENT_NAME || (placa ? `Pedágio ${placa}` : 'Cliente Pedágio');
         const postbackUrl = process.env.PIX_GATEWAY_CALLBACK_URL || '';
 
+        // Payload estruturado conforme documentação PayShark
         const payload = {
-            amount: valor,
-            description: `Pagamento Pedágio - ${dadosEntrada.placa || 'Consulta'}`,
+            amount: amountCents,
+            currency: 'BRL',
+            paymentMethod: 'pix',
             customer: {
-                name: nomeCliente,
-                email: emailPadrao,
-                phone: telefonePadrao,
+                name: name,
+                email: email,
+                phone: phone,
                 document: {
-                    number: cpfGenerico,
-                    type: 'cpf'
+                    number: doc,
+                    type: doc.length > 11 ? 'cnpj' : 'cpf'
                 }
             },
             items: [
                 {
-                    title: 'Regularização de Débito',
-                    unitPrice: valor,
-                    quantity: 1
+                    title: placa ? `Pedágio - ${placa}` : 'Regularização de Débito',
+                    unitPrice: amountCents,
+                    quantity: 1,
+                    tangible: false
                 }
             ],
-            postbackUrl: postbackUrl
+            externalRef: `pd-${placa || 'consulta'}-${Date.now()}`
         };
 
-        const response = await fetch(`${url_api.replace(/\/$/, '')}/`, {
+        if (postbackUrl && !postbackUrl.includes('seu-app.onrender.com')) {
+            payload.postbackUrl = postbackUrl;
+        }
+
+        const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
+                'Authorization': authHeader,
                 'Content-Type': 'application/json',
-                'X-API-Key': api_key,
-                'X-API-Secret': api_secret
+                'Accept': 'application/json'
             },
             body: JSON.stringify(payload)
         });
 
-        const resData = await response.json();
+        const textResponse = await response.text();
+        let resData = {};
+        try {
+            resData = textResponse ? JSON.parse(textResponse) : {};
+        } catch (e) {
+            console.error('Resposta PayShark não é JSON:', textResponse);
+            return res.status(500).json({ status: "false", error: "Erro de comunicação com o Gateway de Pagamento" });
+        }
 
-        if (resData.paymentData && resData.paymentData.copiaecola) {
+        console.log(`[PAYSHARK RESP HTTP ${response.status}]:`, JSON.stringify(resData));
+
+        // Extrai a transação e o código Pix da resposta
+        const tx = resData.data || resData;
+        const pixInfo = tx.pix || {};
+        const copiaCola = pixInfo.qrcode || pixInfo.qrCode || pixInfo.copyPaste || tx.copy_paste || '';
+
+        if (copiaCola) {
             return res.json({
                 status: "true",
-                copy_paste: resData.paymentData.copiaecola,
-                qr_code_url: resData.paymentData.qrcode
+                copy_paste: copiaCola,
+                qrcode: copiaCola,
+                qr_code_url: pixInfo.qrCodeUrl || ''
             });
         } else {
             return res.json({
                 status: "false",
-                error: "Falha na API: " + (resData.message || 'Erro desconhecido'),
+                error: resData.message || tx.message || 'Falha ao obter QR Code da PayShark',
                 details: resData
             });
         }
+
     } catch (error) {
-        console.error('Erro ao gerar Pix:', error);
-        return res.status(500).json({ status: "false", error: "Erro interno no servidor ao gerar Pix" });
+        console.error('Erro no servidor ao gerar Pix:', error);
+        return res.status(500).json({ status: "false", error: "Erro interno no servidor: " + error.message });
     }
 });
 
-// 3. ROTA DE WEBHOOK (substitui webhook.php)
+// 3. ROTA DE WEBHOOK
 app.post('/api/webhook', async (req, res) => {
     try {
         const dados = req.body;
@@ -126,8 +165,8 @@ app.post('/api/webhook', async (req, res) => {
 
         const status = dados.status ? String(dados.status).trim().toUpperCase() : '';
 
-        if (status === 'COMPLETED' || status === 'PAGO') {
-            let descricao = dados.description || '';
+        if (status === 'COMPLETED' || status === 'PAID' || status === 'PAGO' || status === 'APPROVED') {
+            let descricao = dados.description || (dados.items && dados.items[0] ? dados.items[0].title : '');
             if (!descricao && dados.body && dados.body.description) {
                 descricao = dados.body.description;
             }
@@ -156,20 +195,18 @@ app.post('/api/webhook', async (req, res) => {
                 });
 
                 console.log(`Placa: ${chaveLimpa} | HTTP Firebase: ${fbResponse.status}`);
-                return res.status(200).send(`Firebase atualizado com sucesso para a placa: ${chaveLimpa}`);
-            } else {
-                console.error(`Erro ao extrair placa da descrição: '${descricao}'`);
+                return res.status(200).send(`Firebase atualizado para a placa: ${chaveLimpa}`);
             }
         }
 
-        return res.status(200).send("Webhook recebido, mas nenhum status de conclusão detectado.");
+        return res.status(200).send("Webhook processado.");
     } catch (err) {
-        console.error('Erro no processamento do Webhook:', err);
-        return res.status(500).send("Erro interno no servidor do webhook");
+        console.error('Erro no Webhook:', err);
+        return res.status(500).send("Erro interno no webhook");
     }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Servidor rodando com sucesso na porta ${PORT}`);
+    console.log(`Servidor executando na porta ${PORT}`);
 });
